@@ -1,6 +1,7 @@
 #include "mkw/animation.hpp"
 #include <mkw/render_metrics.hpp>
 #include <mkw/asset_pack.hpp>
+#include <mkw/endian.hpp>
 #include "mkw/pose_blend.hpp"
 #include <3ds.h>
 #include <cstdio>
@@ -84,6 +85,10 @@ bool DriverAnimation::load(const char* path,const Model& model){
         ok=std::fread(data_,1,size,f)==size;std::fclose(f);
     }
     auto u32=[](const uint8_t* p){uint32_t v;std::memcpy(&v,p,4);return v;};
+    // All but the 32-byte names and the section tags is 4-byte words, made
+    // native once each as the walk below reaches it.
+    auto W=[&](size_t at,size_t bytes){if(at<=size&&bytes<=size-at)le::wordBytes(data_+at,bytes);};
+    if(ok)W(4,24);
     if(!ok||std::memcmp(data_,"DSKM",4)||u32(data_+4)<2||u32(data_+4)>5){reset();return false;}
     vertices_=u32(data_+8);matrices_=u32(data_+12);count_=u32(data_+16);shapes_=u32(data_+20);faceCount_=u32(data_+24);
     if(vertices_!=model.vertexCount||!matrices_||matrices_>128||!count_||count_>64||shapes_>64||faceCount_>64||model.submeshes.size()>64){reset();return false;}
@@ -91,9 +96,11 @@ bool DriverAnimation::load(const char* path,const Model& model){
     int32_t rootSlot=-2;
     if(u32(data_+4)==5){
         if(size<32){reset();return false;}
+        W(28,4);
         rootSlot=int32_t(u32(data_+28));cursor=32;
         if(rootSlot < -1 || (rootSlot>=0&&unsigned(rootSlot)>=matrices_)){reset();return false;}
     }
+    W(cursor,size_t(vertices_)*sizeof(SourceVertex)+size_t(shapes_)*sizeof(Range));
     source_=reinterpret_cast<const SourceVertex*>(data_+cursor);cursor+=vertices_*sizeof(SourceVertex);
     ranges_=reinterpret_cast<const Range*>(data_+cursor);cursor+=shapes_*sizeof(Range);
     if(cursor>size){reset();return false;}
@@ -105,38 +112,44 @@ bool DriverAnimation::load(const char* path,const Model& model){
     }
     for(unsigned i=0;i<shapes_;++i)if(ranges_[i].first>vertices_||ranges_[i].count>vertices_-ranges_[i].first){reset();return false;}
     for(unsigned bank=0;bank<2;++bank)for(unsigned i=0;i<(bank?faceCount_:count_);++i){
-        if(cursor+44>size){reset();return false;}auto& c=(bank?faces_:clips_)[i];std::memcpy(c.name,data_+cursor,32);c.name[31]=0;
+        if(cursor+44>size){reset();return false;}W(cursor+32,12);auto& c=(bank?faces_:clips_)[i];std::memcpy(c.name,data_+cursor,32);c.name[31]=0;
         c.duration=u32(data_+cursor+32);c.loop=u32(data_+cursor+36);c.count=u32(data_+cursor+40);cursor+=44;c.data=data_+cursor;
         if(!c.count||c.count>2000||c.duration!=c.count){reset();return false;}
         cursor+=size_t(c.count)*(bank?shapes_*4:matrices_*84+shapes_*4);if(cursor>size){reset();return false;}
+        W(size_t(c.data-data_),cursor-size_t(c.data-data_));
     }
     if(u32(data_+4)>=3){
         if(cursor+12>size||std::memcmp(data_+cursor,"HLOC",4)){reset();return false;}
+        W(cursor+4,8);
         hairNodeCount_=u32(data_+cursor+4);hairClipCount_=u32(data_+cursor+8);cursor+=12;
         if((!hairNodeCount_!=!hairClipCount_)||hairNodeCount_>hairNodes_.size()||hairClipCount_>hairClips_.size()||cursor+hairNodeCount_*8>size){reset();return false;}
+        W(cursor,size_t(hairNodeCount_)*8);
         for(unsigned i=0;i<hairNodeCount_;++i){
             auto& n=hairNodes_[i];n.matrix=u32(data_+cursor);n.parent=u32(data_+cursor+4);cursor+=8;
             if(n.matrix>=matrices_||n.parent>=matrices_||n.matrix==n.parent){reset();return false;}
             for(unsigned j=0;j<i;++j)if(hairNodes_[j].matrix==n.matrix||hairNodes_[j].parent==n.matrix){reset();return false;}
         }
         for(unsigned i=0;i<hairClipCount_;++i){
-            if(cursor+44>size){reset();return false;}auto& h=hairClips_[i];auto& c=h.clip;
+            if(cursor+44>size){reset();return false;}W(cursor+32,12);auto& h=hairClips_[i];auto& c=h.clip;
             std::memcpy(c.name,data_+cursor,32);c.name[31]=0;c.duration=u32(data_+cursor+32);c.loop=u32(data_+cursor+36);c.count=u32(data_+cursor+40);cursor+=44;
             if(!c.count||c.count>2000||c.duration!=c.count){reset();return false;}
             h.inverseRest=reinterpret_cast<const float*>(data_+cursor);cursor+=hairNodeCount_*84;
             c.data=data_+cursor;cursor+=size_t(c.count)*hairNodeCount_*84;if(cursor>size){reset();return false;}
+            W(size_t(reinterpret_cast<const uint8_t*>(h.inverseRest)-data_),cursor-size_t(reinterpret_cast<const uint8_t*>(h.inverseRest)-data_));
         }
     }
     if(u32(data_+4)>=4){
         if(cursor+8>size||std::memcmp(data_+cursor,"UVAN",4)){reset();return false;}
+        W(cursor+4,4);
         uvClipCount_=u32(data_+cursor+4);cursor+=8;
         if(uvClipCount_>uvClips_.size()){reset();return false;}
         for(unsigned i=0;i<uvClipCount_;++i){
-            if(cursor+44>size){reset();return false;}auto& c=uvClips_[i];
+            if(cursor+44>size){reset();return false;}W(cursor+32,12);auto& c=uvClips_[i];
             std::memcpy(c.name,data_+cursor,32);c.name[31]=0;
             c.duration=u32(data_+cursor+32);c.loop=u32(data_+cursor+36);c.count=u32(data_+cursor+40);cursor+=44;c.data=data_+cursor;
             if(!c.count||c.count>2000||c.duration!=c.count){reset();return false;}
             cursor+=size_t(c.count)*shapes_*24;if(cursor>size){reset();return false;}
+            W(size_t(c.data-data_),cursor-size_t(c.data-data_));
         }
         baseUV_.resize(vertices_);
         for(unsigned i=0;i<vertices_;++i)baseUV_[i]={model.vertices[i].uv[0],model.vertices[i].uv[1]};
@@ -144,11 +157,14 @@ bool DriverAnimation::load(const char* path,const Model& model){
     // DSKM5 appends translation tracks only for a root outside the palette.
     // Ordinary skin/face/hair/UV payloads retain their previous layout.
     if(u32(data_+4)==5&&rootSlot==-1){
-        if(cursor+8>size||std::memcmp(data_+cursor,"ROOT",4)||u32(data_+cursor+4)!=count_){reset();return false;}
+        if(cursor+8>size||std::memcmp(data_+cursor,"ROOT",4)){reset();return false;}
+        W(cursor+4,4);
+        if(u32(data_+cursor+4)!=count_){reset();return false;}
         cursor+=8;
         for(unsigned i=0;i<count_;++i){
             const size_t bytes=size_t(clips_[i].count)*12;
             if(bytes>size-cursor){reset();return false;}
+            W(cursor,bytes);
             cursor+=bytes;
         }
     }

@@ -7,6 +7,7 @@
 #include <mkw/sound_scene.hpp>
 #include <mkw/menu_movie_audio.hpp>
 #include <mkw/snd_layout.hpp>
+#include <mkw/endian.hpp>
 #include <3ds.h>
 #include <algorithm>
 #include <array>
@@ -159,7 +160,7 @@ public:
     u8* dst = ring + (size_t(free) * channelCount + c) * slotBytes;
     if (c) ok = !std::fseek(file, long(at + stride * c), SEEK_SET);
     ok = ok && std::fread(dst, 1, size, file) == size;
-    if (ok && fmt == 1) for (u32 i = 0; i + 1 < size; i += 2) std::swap(dst[i], dst[i + 1]); // BE PCM16 -> LE
+    if (ok && fmt == 1 && !le::Swap) for (u32 i = 0; i + 1 < size; i += 2) std::swap(dst[i], dst[i + 1]); // BE PCM16 -> native
    }
    if (!ok) { failed.store(true); return did; }
    s.samples = blockSamplesOf(b); s.startFrame = 0; s.context = false;

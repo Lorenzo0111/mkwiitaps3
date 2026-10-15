@@ -13,6 +13,9 @@ It isn't an emulator. The game runs natively on the Vita:
 This repository contains **no Nintendo files**. You build the game files
 yourself, on your own computer, from your own Mario Kart Wii disc.
 
+> **PS3:** an untested PS3 (CFW/HEN) build is also available; see
+> [docs/PS3_PORT.md](docs/PS3_PORT.md).
+
 > **Status: playable, work in progress.** Menus, Grand Prix (including
 > Mirror and the award ceremony), VS and Time Trials run on real hardware,
 > with sound, in 16:9. Battle is playable and still being worked on. Races run

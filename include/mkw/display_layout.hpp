@@ -3,7 +3,7 @@ namespace mkw::display {
 // The top screen's canvas: 240 units high on every target. The 3DS top LCD is
 // 5:3 (400 wide). The Vita's 960x544 is 16:9: the canvas widens to 424 at the
 // same height, as the Wii's widescreen mode widens its 608x456 layouts.
-#ifdef __vita__
+#if defined(__vita__) || defined(__PPU__)
 inline constexpr float Width=424.f;
 #else
 inline constexpr float Width=400.f;

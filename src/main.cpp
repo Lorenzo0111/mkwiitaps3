@@ -103,7 +103,7 @@ namespace K = Kinoko;
 static constexpr const char* DATA = "ux0:data/mkw";
 namespace mkw {extern std::atomic<unsigned> fileOpens;extern std::atomic<unsigned long long> fileOpenTicks;}
 static bool exists(const char* p) { FILE* f=fopen(p,"rb"); if(!f)return false; fclose(f);return true; }
-#ifdef __vita__
+#if defined(__vita__) || defined(__PPU__)
 // The Vita's race detail. Defaults leave out only what is too small to see:
 // objects under about 4 px and far item boxes' sparkle. ux0:data/mkw/quality.txt
 // overrides any field, one "name=value" per line ("reduced=1" first takes the
@@ -360,8 +360,15 @@ int main() {
 #endif
     // ARM11 VFP: round-to-nearest, flush denormals. Keep Kinoko's explicit Wii
     // arithmetic and disable compiler FP contraction; ghost trace is the oracle.
+#ifdef __PPU__
+    // PPU: round-to-nearest is the default; non-IEEE mode (FPSCR NI) flushes denormals.
+    asm volatile("mtfsb1 29");
+    double fpscrBits;asm volatile("mffs %0":"=f"(fpscrBits));
+    unsigned long long fpscrWord;std::memcpy(&fpscrWord,&fpscrBits,8);const unsigned fpscr=unsigned(fpscrWord);
+#else
     unsigned fpscr;asm volatile("vmrs %0, fpscr":"=r"(fpscr));
     fpscr=(fpscr&~(3u<<22))|(1u<<24);asm volatile("vmsr fpscr, %0"::"r"(fpscr));
+#endif
     void* memory=memalign(32,K::MEMORY_SPACE_SIZE);
     if(!memory){report("FAIL simulation heap reservation");return startupFailure("Simulation memory allocation failed.");}
     auto* heap=K::EGG::ExpHeap::create(memory,K::MEMORY_SPACE_SIZE,K::DEFAULT_OPT);
@@ -1160,7 +1167,7 @@ int main() {
     // Old 3DS draws reduced detail; full-quality.txt keeps every draw for QA.
     // Set before the first race loads: some reductions apply at load.
     bool new3ds=false;APT_CheckNew3DS(&new3ds);
-#ifdef __vita__
+#if defined(__vita__) || defined(__PPU__)
     applyVitaQuality();
 #else
     mkw::renderQuality().setReduced(!new3ds&&!(kQa&&exists("ux0:data/mkw/full-quality.txt")));
@@ -1267,7 +1274,7 @@ int main() {
     // Simulation stays at 60 Hz on every model. Old 3DS presents races at
     // 30 FPS. New 3DS and New 2DS XL present at 60, or at 30 while the 3D
     // slider is up (stereo draws every frame twice).
-#ifdef __vita__
+#if defined(__vita__) || defined(__PPU__)
     // Races present every tick (60 FPS) by default, at the lower internal
     // resolution (c3d_gpu.cpp); quality.txt framerate=30 asks for a steady 30.
     const bool race60=mkw::renderQuality().framerate>=60;

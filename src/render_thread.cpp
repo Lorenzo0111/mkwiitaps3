@@ -18,6 +18,7 @@
 // reusing every buffer the left eye wrote. Immediate frames in stereo (menus)
 // record the same way and are drawn on their own thread at end().
 #include "mkw/renderer.hpp"
+#include "mkw/fpu_mode.hpp"
 #include "mkw/menu_ui.hpp"
 #include "mkw/race_effects.hpp"
 #include "mkw/nw4r_ef_draw.hpp"
@@ -151,7 +152,7 @@ bool Renderer::startRenderThread(){
     LightEvent_Init(&wake_,RESET_ONESHOT);LightEvent_Init(&done_,RESET_ONESHOT);
     // Identical VFP mode (flush-to-zero, rounding) to the recording thread:
     // the render thread's matrices and culling match an immediate frame's.
-    fpscr_=__builtin_arm_get_fpscr();
+    fpscr_=mkw::fpuMode();
     bool n3ds=false;APT_CheckNew3DS(&n3ds);
     // The job worker's core (JobWorker::start sets Old 3DS core 1's app time
     // limit). One step below its priority: presentation jobs, which the
@@ -170,7 +171,7 @@ void Renderer::aptEvent(APT_HookType type,void* self){
 }
 void Renderer::threadEntry(void* self){static_cast<Renderer*>(self)->threadLoop();}
 void Renderer::threadLoop(){
-    __builtin_arm_set_fpscr(fpscr_);
+    mkw::setFpuMode(fpscr_);
     renderThread=true;positionScratchIndex=2;
     for(;;){
         const unsigned next=completed_.load(std::memory_order_relaxed);

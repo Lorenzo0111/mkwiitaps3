@@ -2,6 +2,7 @@
 #include <mkw/lakitu_assets.hpp>
 #include <mkw/renderer.hpp>
 #include <mkw/animation.hpp>
+#include <mkw/endian.hpp>
 #include <game/field/jugem/JugemMove.hh>
 #include <game/kart/KartObject.hh>
 #include <game/kart/KartMove.hh>
@@ -27,12 +28,12 @@ struct Joints {
     bool load(const char* path){
         data.clear();clips.clear();
         FILE* f=std::fopen(path,"rb");if(!f)return false;
-        uint32_t h[4];bool ok=std::fread(h,4,4,f)==4&&!std::memcmp(h,"DJNT",4)&&h[1]==1&&h[2]&&h[2]<=8&&h[3]&&h[3]<=16;
+        uint32_t h[4];bool ok=std::fread(h,4,4,f)==4&&(le::words(h+1,3),true)&&!std::memcmp(h,"DJNT",4)&&h[1]==1&&h[2]&&h[2]<=8&&h[3]&&h[3]<=16;
         if(ok){joints=h[2];ok=!std::fseek(f,long(32*joints),SEEK_CUR);clips.resize(h[3]);}
         for(auto& c:clips){
-            uint32_t d[2];ok=ok&&std::fread(c.name,1,32,f)==32&&std::fread(d,4,2,f)==2&&d[0]&&d[0]<=1000;if(!ok)break;
+            uint32_t d[2];ok=ok&&std::fread(c.name,1,32,f)==32&&std::fread(d,4,2,f)==2&&(le::words(d,2),true)&&d[0]&&d[0]<=1000;if(!ok)break;
             c.name[31]=0;c.duration=d[0];c.loop=d[1];c.offset=data.size();
-            const size_t n=size_t(d[0])*joints*12;data.resize(data.size()+n);ok=std::fread(data.data()+c.offset,4,n,f)==n;
+            const size_t n=size_t(d[0])*joints*12;data.resize(data.size()+n);ok=std::fread(data.data()+c.offset,4,n,f)==n;le::words(data.data()+c.offset,n);
         }
         std::fclose(f);if(!ok){data.clear();clips.clear();}return ok;
     }

@@ -3,7 +3,7 @@
 import json,subprocess
 from pathlib import Path
 root=Path(__file__).resolve().parents[1];deps=json.loads((root/'dependencies.json').read_text())
-for name in ('kinoko','noclip','gclib','citro3d','libctru'):
+for name in ('kinoko','noclip','gclib','citro3d','libctru','psl1ght'):
  dest=root/'vendor'/name;entry=deps[name]
  if dest.exists():
   actual=subprocess.check_output(['git','-C',str(dest),'rev-parse','HEAD'],text=True).strip()
