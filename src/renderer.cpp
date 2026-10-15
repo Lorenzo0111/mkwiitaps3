@@ -8,6 +8,7 @@
 #include <mkw/menu_ui.hpp>
 #include <mkw/render_metrics.hpp>
 #include <mkw/asset_pack.hpp>
+#include <mkw/endian.hpp>
 #include "shader_data.hpp"
 #include <tex3ds.h>
 #include <cmath>
@@ -136,11 +137,12 @@ std::printf("Missing model: %s\n",path);
 #endif
 return false;}
     uint32_t h[6];
-    if(!f.read(h,sizeof h)||std::memcmp(h,"GMDL",4)||(h[1]!=3&&h[1]!=4&&h[1]!=5)||!h[2]||h[2]>65535||h[3]>3000000||h[4]>2048||h[5]>512) return false;
+    if(f.read(h,sizeof h))le::words(h+1,5);else h[0]=0;
+    if(std::memcmp(h,"GMDL",4)||(h[1]!=3&&h[1]!=4&&h[1]!=5)||!h[2]||h[2]>65535||h[3]>3000000||h[4]>2048||h[5]>512) return false;
     vertexCount=h[2];indexCount=h[3]; submeshes.resize(h[4]);
     // v3 records end at animationFrames; v4 adds the retail lighting state.
     const size_t record=h[1]==5?sizeof(Submesh):h[1]==4?offsetof(Submesh,menuReflection):offsetof(Submesh,lighting);
-    for(auto& s:submeshes)if(!f.read(&s,record))return false;
+    for(auto& s:submeshes){if(!f.read(&s,record))return false;le::wordBytes(&s,record);}
     for(const auto& s:submeshes) if(s.first>indexCount||s.count>indexCount-s.first||s.count%3||s.texture< -1||s.texture>=static_cast<int32_t>(h[5])||s.secondary< -1||s.secondary>=static_cast<int32_t>(h[5]))return false;
     for(const auto& s:submeshes){
         if(s.menuReflection>6||s.menuReflection==5||(s.menuReflection&&!(s.lighting&retail::Menu)))return false;
@@ -178,6 +180,9 @@ return false;}
     vertices=static_cast<Vertex*>(linearAlloc(vertexCount*sizeof(Vertex)));
     indices=static_cast<uint16_t*>(linearAlloc(indexCount*sizeof(uint16_t)));
     if(!vertices||!indices||!f.read(vertices,vertexCount*sizeof(Vertex))||!f.read(indices,indexCount*sizeof(uint16_t)))return false;
+    // Positions, normals and UVs are floats; the colour bytes stay as they are.
+    if constexpr(le::Swap)for(uint32_t i=0;i<vertexCount;++i)le::wordBytes(&vertices[i],offsetof(Vertex,color));
+    le::halves(indices,indexCount);
     if(!f.atEnd())return false;
     file.reset();
     for(uint32_t i=0;i<indexCount;++i)if(indices[i]>=vertexCount)return false;
@@ -192,11 +197,14 @@ Scene::~Scene(){for(auto m:models)delete m;}
 bool Scene::load(const char* path){
     FILE* f=std::fopen(path,"rb");if(!f)return false;
     uint32_t h[3];
-    if(!readExact(f,h,sizeof h)||std::memcmp(h,"GSCN",4)||h[1]!=1||h[2]>10000||!readExact(f,&spawn,sizeof spawn)||!readExact(f,&spawnRotation,sizeof spawnRotation)){std::fclose(f);return false;}
+    if(!readExact(f,h,sizeof h)){std::fclose(f);return false;}
+    le::words(h+1,2);
+    if(std::memcmp(h,"GSCN",4)||h[1]!=1||h[2]>10000||!readExact(f,&spawn,sizeof spawn)||!readExact(f,&spawnRotation,sizeof spawnRotation)){std::fclose(f);return false;}
+    le::wordBytes(&spawn,sizeof spawn);le::wordBytes(&spawnRotation,sizeof spawnRotation);
     std::map<std::string,Model*> cache;
     for(uint32_t i=0;i<h[2];++i){
         char name[64];float m[12];
-        if(!readExact(f,name,sizeof name)||!readExact(f,m,sizeof m)||!std::memchr(name,0,sizeof name)||std::strstr(name,"..")||std::strchr(name,'/')||std::strchr(name,'\\')){std::fclose(f);return false;}
+        if(!readExact(f,name,sizeof name)||!readExact(f,m,sizeof m)||(le::words(m,12),false)||!std::memchr(name,0,sizeof name)||std::strstr(name,"..")||std::strchr(name,'/')||std::strchr(name,'\\')){std::fclose(f);return false;}
         Model* model=nullptr;auto it=cache.find(name);
         if(it!=cache.end())model=it->second;
         else{model=new Model;models.push_back(model);std::string p="models/";p+=name;p+=".gmdl";
@@ -340,7 +348,7 @@ bool Renderer::loadVramTexture(Texture& texture,const char* path,GPU_TEXTURE_WRA
 }
 bool Renderer::moveToVram(Texture& texture,std::size_t reserve){
     auto& t=texture.gpu;
-    const u32 at=reinterpret_cast<u32>(t.data);
+    const u32 at=u32(reinterpret_cast<uintptr_t>(t.data));
     if(!texture.ready||!t.data||(at>=OS_VRAM_VADDR&&at<OS_VRAM_VADDR+OS_VRAM_SIZE)||t.maxLevel)return false;
     const std::size_t bytes=C3D_TexCalcTotalSize(t.size,0);
     if(vramSpaceFree()<bytes+reserve)return false;

@@ -3,6 +3,7 @@
 #include <mkw/course_lighting.hpp>
 #include <mkw/garage.hpp>
 #include <mkw/display_layout.hpp>
+#include <mkw/endian.hpp>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -69,8 +70,8 @@ bool loadCamera(const char* name,std::vector<float>& frames,unsigned& count){
     char path[128];std::snprintf(path,sizeof path,"models/ceremony/%s.scam",name);
     FILE* f=std::fopen(path,"rb");if(!f)return false;
     char magic[4];std::uint32_t header[2];
-    bool ok=std::fread(magic,1,4,f)==4&&!std::memcmp(magic,"SCAM",4)&&std::fread(header,4,2,f)==2&&header[0]==1&&header[1]>0&&header[1]<100000;
-    if(ok){frames.resize(std::size_t(header[1])*13);ok=std::fread(frames.data(),sizeof(float),frames.size(),f)==frames.size();count=header[1];}
+    bool ok=std::fread(magic,1,4,f)==4&&!std::memcmp(magic,"SCAM",4)&&std::fread(header,4,2,f)==2&&(le::words(header,2),true)&&header[0]==1&&header[1]>0&&header[1]<100000;
+    if(ok){frames.resize(std::size_t(header[1])*13);ok=std::fread(frames.data(),sizeof(float),frames.size(),f)==frames.size();le::words(frames.data(),frames.size());count=header[1];}
     std::fclose(f);
     return ok;
 }
@@ -132,6 +133,7 @@ bool AwardCeremony::load(const Setup& setup){
     std::array<uint16_t,TextCount*2> sizes{};
     if(FILE* f=std::fopen("models/ceremony/text.bin","rb")){
         if(std::fread(sizes.data(),2,sizes.size(),f)!=sizes.size())sizes={};
+        le::halves(sizes.data(),sizes.size());
         std::fclose(f);
     }
     auto text=[&](Text& t,unsigned index){
@@ -159,26 +161,27 @@ bool AwardCeremony::loadKarts(){
     // the three lanes, the CAME chain and the POTI routes it rides.
     FILE* f=std::fopen("models/ceremony/winning_run.bin","rb");if(!f)return false;
     std::uint32_t header[2]{};std::vector<float> points;
-    bool ok=std::fread(header,4,2,f)==2&&header[0]==3&&header[1]>=2&&header[1]<1000;
-    if(ok){points.resize(std::size_t(header[0])*header[1]*3);ok=std::fread(points.data(),4,points.size(),f)==points.size();}
+    bool ok=std::fread(header,4,2,f)==2&&(le::words(header,2),true)&&header[0]==3&&header[1]>=2&&header[1]<1000;
+    if(ok){points.resize(std::size_t(header[0])*header[1]*3);ok=std::fread(points.data(),4,points.size(),f)==points.size();le::words(points.data(),points.size());}
     driveCameras_.clear();routes_.clear();
     std::uint32_t cameras[2]{};
-    ok=ok&&std::fread(cameras,4,2,f)==2&&cameras[0]>0&&cameras[0]<64&&cameras[1]<cameras[0];
+    ok=ok&&std::fread(cameras,4,2,f)==2&&(le::words(cameras,2),true)&&cameras[0]>0&&cameras[0]<64&&cameras[1]<cameras[0];
     for(unsigned c=0;ok&&c<cameras[0];++c){
         uint8_t bytes[4];uint16_t speeds[4];float values[12];
         ok=std::fread(bytes,1,4,f)==4&&std::fread(speeds,2,4,f)==4&&std::fread(values,4,12,f)==12;
         if(!ok)break;
+        le::halves(speeds,4);le::words(values,12);
         DriveCamera d;d.type=bytes[0];d.next=bytes[1];d.route=bytes[2];d.pathSpeed=speeds[0];d.fovSpeed=speeds[1];d.viewSpeed=speeds[2];
         d.position={values[0],values[1],values[2]};d.viewStart={values[3],values[4],values[5]};d.viewEnd={values[6],values[7],values[8]};
         d.fovStart=values[9];d.fovEnd=values[10];d.time=values[11];
         driveCameras_.push_back(d);
     }
     std::uint32_t routes=0;
-    ok=ok&&std::fread(&routes,4,1,f)==1&&routes<64;
+    ok=ok&&std::fread(&routes,4,1,f)==1&&(le::fix(routes),true)&&routes<64;
     for(unsigned r=0;ok&&r<routes;++r){
-        std::uint32_t count=0;ok=std::fread(&count,4,1,f)==1&&count<1000;
+        std::uint32_t count=0;ok=std::fread(&count,4,1,f)==1&&(le::fix(count),true)&&count<1000;
         Route route;
-        for(unsigned n=0;ok&&n<count;++n){float v[4];ok=std::fread(v,4,4,f)==4;route.points.push_back({v[0],v[1],v[2]});route.speeds.push_back(v[3]);}
+        for(unsigned n=0;ok&&n<count;++n){float v[4];ok=std::fread(v,4,4,f)==4;le::words(v,4);route.points.push_back({v[0],v[1],v[2]});route.speeds.push_back(v[3]);}
         routes_.push_back(std::move(route));
     }
     std::fclose(f);

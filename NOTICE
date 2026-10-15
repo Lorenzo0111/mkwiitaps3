@@ -29,6 +29,7 @@ Fetched at build time or included, each under its own license (see licenses/):
   libctru (devkitPro)        zlib (headers and decompressor)
   vitaGL, vitaShaRK          LGPL-3.0 / their own licenses, installed with VitaSDK
   VitaSDK                    its own licenses
+  PSL1GHT (cgcomp assembler) MIT (PS3 build)
   ogws, mkw decompilations   CC0 (reference only)
   tex3ds (devkitPro)         its own license, downloaded at build time
 

@@ -1,4 +1,6 @@
 #include "mkw/object_bank.hpp"
+#include <mkw/endian.hpp>
+#include <cstddef>
 #include <mkw/asset_pack.hpp>
 #include <mkw/render_metrics.hpp>
 #include <algorithm>
@@ -48,73 +50,81 @@ bool ObjectBank::load(const char* path){
         size=size_t(length);data_=static_cast<uint8_t*>(std::malloc(size));
         ok=data_&&std::fread(data_,1,size,f)==size;std::fclose(f);
     }
+    if(ok&&size>=40)le::words(data_+4,9);
     if(!ok||std::memcmp(data_,"DOBJ",4)||u32(data_+4)!=1){reset();return false;}
     vertices_=u32(data_+8);matrices_=u32(data_+12);shapes_=u32(data_+16);
     const unsigned nodeCount=u32(data_+20),chrCount=u32(data_+24),patCount=u32(data_+28),srtCount=u32(data_+32),clrCount=u32(data_+36);
     if(!matrices_||matrices_>128||vertices_>65535||shapes_>256||nodeCount>256||chrCount>64||patCount>64||srtCount>64||clrCount>64){reset();return false;}
     size_t at=40;
     auto take=[&](size_t bytes)->const uint8_t*{if(bytes>size-std::min(at,size)||at>size)return nullptr;const uint8_t* p=data_+at;at+=bytes;return p;};
-    source_=reinterpret_cast<const SourceVertex*>(take(size_t(vertices_)*sizeof(SourceVertex)));
-    ranges_=reinterpret_cast<const Range*>(take(size_t(shapes_)*sizeof(Range)));
-    bind_=reinterpret_cast<const float*>(take(size_t(matrices_)*48));
+    // Everything but the 32-byte names is 4-byte words: made native as taken.
+    auto words=[&](size_t bytes)->const uint8_t*{const uint8_t* p=take(bytes);if(p)le::wordBytes(data_+(p-data_),bytes);return p;};
+    source_=reinterpret_cast<const SourceVertex*>(words(size_t(vertices_)*sizeof(SourceVertex)));
+    ranges_=reinterpret_cast<const Range*>(words(size_t(shapes_)*sizeof(Range)));
+    bind_=reinterpret_cast<const float*>(words(size_t(matrices_)*48));
     if(!source_||!ranges_||!bind_){reset();return false;}
     for(unsigned i=0;i<vertices_;++i)if(source_[i].matrix>=matrices_){reset();return false;}
     for(unsigned i=0;i<shapes_;++i)if(vertices_&&(ranges_[i].first>vertices_||ranges_[i].count>vertices_-ranges_[i].first)){reset();return false;}
     nodes_.resize(nodeCount);
     for(auto& n:nodes_){
         const uint8_t* p=take(sizeof(Node));if(!p){reset();return false;}
-        std::memcpy(&n,p,sizeof(Node));n.name[31]=0;
+        std::memcpy(&n,p,sizeof(Node));n.name[31]=0;le::wordBytes(&n.parent,sizeof(Node)-offsetof(Node,parent));
         if(n.parent>=int32_t(nodeCount)||n.slot>=int32_t(matrices_)){reset();return false;}
     }
     for(unsigned i=0;i<chrCount;++i){
         const uint8_t* p=take(48);if(!p){reset();return false;}
+        le::words(data_+(p-data_)+32,4);
         Chr c{};std::memcpy(c.name,p,32);c.name[31]=0;c.frames=u32(p+32);c.loop=u32(p+36);c.step=u32(p+40);c.animatedCount=u32(p+44);
         if(!c.frames||c.frames>MaxClipFrames||!c.step||c.step>64||c.animatedCount>matrices_){reset();return false;}
-        c.animated=reinterpret_cast<const uint32_t*>(take(size_t(c.animatedCount)*4));
-        c.base=reinterpret_cast<const float*>(take(size_t(matrices_)*48));
-        c.samples=reinterpret_cast<const float*>(take(size_t(samples(c.frames,c.step))*c.animatedCount*48));
+        c.animated=reinterpret_cast<const uint32_t*>(words(size_t(c.animatedCount)*4));
+        c.base=reinterpret_cast<const float*>(words(size_t(matrices_)*48));
+        c.samples=reinterpret_cast<const float*>(words(size_t(samples(c.frames,c.step))*c.animatedCount*48));
         if(!c.animated||!c.base||!c.samples){reset();return false;}
         for(unsigned j=0;j<c.animatedCount;++j)if(c.animated[j]>=matrices_){reset();return false;}
         chr_.push_back(c);
     }
     for(unsigned i=0;i<patCount;++i){
         const uint8_t* p=take(40);if(!p){reset();return false;}
+        le::words(data_+(p-data_)+32,2);
         Pat c{};std::memcpy(c.name,p,32);c.name[31]=0;c.frames=u32(p+32);c.loop=u32(p+36);
         if(!c.frames||c.frames>MaxClipFrames){reset();return false;}
-        c.data=reinterpret_cast<const int32_t*>(take(size_t(c.frames)*shapes_*8));if(!c.data){reset();return false;}
+        c.data=reinterpret_cast<const int32_t*>(words(size_t(c.frames)*shapes_*8));if(!c.data){reset();return false;}
         pat_.push_back(c);
     }
     for(unsigned i=0;i<srtCount;++i){
         const uint8_t* p=take(48);if(!p){reset();return false;}
+        le::words(data_+(p-data_)+32,4);
         Srt c{};std::memcpy(c.name,p,32);c.name[31]=0;c.frames=u32(p+32);c.loop=u32(p+36);c.step=u32(p+40);c.count=u32(p+44);
         if(!c.frames||c.frames>MaxClipFrames||!c.step||c.step>64||c.count>shapes_){reset();return false;}
-        c.shapes=reinterpret_cast<const uint32_t*>(take(size_t(c.count)*4));
-        c.data=reinterpret_cast<const float*>(take(size_t(samples(c.frames,c.step))*c.count*48));
+        c.shapes=reinterpret_cast<const uint32_t*>(words(size_t(c.count)*4));
+        c.data=reinterpret_cast<const float*>(words(size_t(samples(c.frames,c.step))*c.count*48));
         if(!c.shapes||!c.data){reset();return false;}
         for(unsigned j=0;j<c.count;++j)if(c.shapes[j]>=shapes_){reset();return false;}
         srt_.push_back(c);
     }
     for(unsigned i=0;i<clrCount;++i){
         const uint8_t* p=take(44);if(!p){reset();return false;}
+        le::words(data_+(p-data_)+32,3);
         Clr c{};std::memcpy(c.name,p,32);c.name[31]=0;c.frames=u32(p+32);c.loop=u32(p+36);c.count=u32(p+40);
         if(!c.frames||c.frames>MaxClipFrames||c.count>shapes_){reset();return false;}
-        c.shapes=reinterpret_cast<const uint32_t*>(take(size_t(c.count)*4));
-        c.flags=reinterpret_cast<const uint32_t*>(take(size_t(c.count)*4));
-        c.data=reinterpret_cast<const uint32_t*>(take(size_t(c.frames)*c.count*12));
+        c.shapes=reinterpret_cast<const uint32_t*>(words(size_t(c.count)*4));
+        c.flags=reinterpret_cast<const uint32_t*>(words(size_t(c.count)*4));
+        c.data=reinterpret_cast<const uint32_t*>(words(size_t(c.frames)*c.count*12));
         if(!c.shapes||!c.flags||!c.data){reset();return false;}
         for(unsigned j=0;j<c.count;++j)if(c.shapes[j]>=shapes_){reset();return false;}
         clr_.push_back(c);
     }
     if(at<size){
         const auto* header=take(8);
+        if(header)le::words(data_+(header-data_)+4,1);
         if(!header||std::memcmp(header,"MORF",4)||u32(header+4)>chr_.size()){reset();return false;}
         for(unsigned i=0;i<u32(header+4);++i){
-            const auto* record=take(12);if(!record){reset();return false;}
+            const auto* record=words(12);if(!record){reset();return false;}
             const unsigned clip=u32(record),count=u32(record+4),frames=u32(record+8);
             if(clip>=chr_.size()||frames!=chr_[clip].frames||count>vertices_){reset();return false;}
-            const auto* indices=take(size_t(count)*4);
-            const auto* deltas=take(size_t(count)*24);
-            const auto* weights=take(size_t(frames)*4);
+            const auto* indices=words(size_t(count)*4);
+            const auto* deltas=words(size_t(count)*24);
+            const auto* weights=words(size_t(frames)*4);
             if(!indices||!deltas||!weights){reset();return false;}
             for(unsigned j=0;j<count;++j)if(u32(indices+j*4)>=vertices_){reset();return false;}
         }

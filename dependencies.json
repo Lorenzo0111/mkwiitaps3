@@ -40,5 +40,11 @@
     "url": "https://github.com/devkitPro/libctru",
     "commit": "9b55eda44cf80b971503991e0c78f9bc8fe50425",
     "usage": "Headers only: 3DS types, GPU enums and shader binary structures for the Vita layer (platform/vita); its LZ decompressor."
+  },
+  "psl1ght": {
+    "url": "https://github.com/ps3dev/PSL1GHT",
+    "commit": "f649a08fd536a9e27c08c7db2d93a2d7ee4c3bbe",
+    "license": "MIT",
+    "usage": "PS3 build only: the NV40 program assembler of tools/cgcomp, linked into the game for the RSX layer (platform/ps3)."
   }
 }

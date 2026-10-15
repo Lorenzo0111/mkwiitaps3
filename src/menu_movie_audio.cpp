@@ -1,6 +1,7 @@
 #include <mkw/menu_movie_audio.hpp>
 #include <mkw/asset_loader.hpp>
 #include <mkw/sound_system.hpp>
+#include <mkw/endian.hpp>
 #include <3ds.h>
 #include <array>
 #include <algorithm>
@@ -29,6 +30,7 @@ struct Stream {
   if(!remaining&&looping){if(std::fseek(file,long(44+loopOffset),SEEK_SET)){ok=false;return 0;}remaining=total-loopOffset;}
   const unsigned bytes=std::min(remaining,bufferBytes());if(!bytes)return 0;
   if(std::fread(buffers[index],1,bytes,file)!=bytes){ok=false;remaining=0;return 0;}
+  le::halfBytes(buffers[index],bytes); // WAV PCM16 is little-endian
   remaining-=bytes;DSP_FlushDataCache(buffers[index],bytes);return bytes;
  }
 };

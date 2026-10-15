@@ -1,4 +1,5 @@
 #include <mkw/asset_pack.hpp>
+#include <mkw/endian.hpp>
 #include <3ds.h>
 #include <algorithm>
 #include <array>
@@ -23,7 +24,7 @@ struct Archives {
  Archives(){LightLock_Init(&lock);}
 };
 Archives& archives(){static Archives value;return value;}
-std::uint32_t u32(const unsigned char* p){std::uint32_t v;std::memcpy(&v,p,4);return v;}
+std::uint32_t u32(const unsigned char* p){return le::u32(p);} // the index is little-endian
 bool load(Archive& a){
  std::FILE* f=std::fopen(a.path,"rb");if(!f)return false;
  std::setvbuf(f,nullptr,_IONBF,0);

@@ -1,6 +1,7 @@
 // Race bottom screen: see include/mkw/race_bottom_screen.hpp and docs/BOTTOM_SCREEN.md.
 #include <mkw/race_bottom_screen.hpp>
 #include <mkw/asset_pack.hpp>
+#include <mkw/endian.hpp>
 #include <mkw/render_quality.hpp>
 #include <mkw/race_map_assets.hpp>
 #include <mkw/race_grid.hpp>
@@ -183,7 +184,7 @@ bool RaceBottomScreen::load(Renderer& renderer,unsigned course){
         if(!pack::read(path,bounds))if(FILE* f=std::fopen(path,"rb")){bounds.resize(20);bounds.resize(std::fread(bounds.data(),1,20,f));std::fclose(f);}
         std::snprintf(path,sizeof path,"textures/race_minimap_%02u.t3x",course);
         if(bounds.size()==20&&m.wiiMapTexture.load(path)&&m.wiiStart.load("textures/race_minimap_start.t3x")){
-            float f[3];uint16_t s[4];std::memcpy(f,bounds.data(),12);std::memcpy(s,bounds.data()+12,8);
+            float f[3];uint16_t s[4];std::memcpy(f,bounds.data(),12);std::memcpy(s,bounds.data()+12,8);le::words(f,3);le::halves(s,4);
             m.wiiX0=f[0];m.wiiZ0=f[1];m.wiiUpt=f[2];m.wiiW=s[0];m.wiiH=s[1];m.wiiPW=s[2];m.wiiPH=s[3];
             m.wiiMap=m.wiiUpt>0&&m.wiiW&&m.wiiH;
         }

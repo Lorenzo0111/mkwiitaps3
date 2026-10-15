@@ -3,6 +3,7 @@
 // with Ghidra are noted inline and in docs/AUDIO_SOURCE.md.
 #include <mkw/snd_engine.hpp>
 #include <mkw/snd_tables.hpp>
+#include <mkw/endian.hpp>
 #include <algorithm>
 #include <climits>
 #include <cmath>
@@ -142,7 +143,7 @@ struct Lfo {
 namespace {
 struct Cursor {
  const std::vector<u8>& d; size_t at = 0; bool ok = true;
- template <class T> T get() { T v{}; if (at + sizeof(T) > d.size()) { ok = false; return v; } std::memcpy(&v, d.data() + at, sizeof(T)); at += sizeof(T); return v; }
+ template <class T> T get() { T v{}; if (at + sizeof(T) > d.size()) { ok = false; return v; } std::memcpy(&v, d.data() + at, sizeof(T)); at += sizeof(T); le::fix(v); return v; }
  template <class T> void array(std::vector<T>& out, u32 n) { if (at + size_t(n) * sizeof(T) > d.size()) { ok = false; return; } out.resize(n); if (n) std::memcpy(out.data(), d.data() + at, size_t(n) * sizeof(T)); at += size_t(n) * sizeof(T); }
 };
 }
@@ -158,6 +159,17 @@ bool Archive::load(std::vector<u8> bytes) {
  c.array(waves_, waves); c.array(reach_, sounds); c.array(reachPool_, pool);
  c.at = (c.at + 3) & ~size_t(3);
  if (!c.ok || c.at != bytes.size()) { sounds_.clear(); return false; }
+ // The tables were copied in file (little-endian) order.
+ if constexpr (le::Swap) {
+  for (auto& e : sounds_) { le::halves(&e.playerId, 2); le::words(&e.fileId, 6); le::halves(&e.strmChannels, 2); }
+  for (auto& e : files_) le::words(&e, 6);
+  le::words(banks_.data(), banks_.size()); le::words(groupItems_.data(), groupItems_.size());
+  for (auto& e : groups_) le::words(&e, 2);
+  for (auto& e : bridges_) { le::fix(e.fileId); le::fix(e.wave); le::fix(e.bodyStart); le::fix(e.bodyPs); le::fix(e.bodyYn1); le::fix(e.bodyYn2); le::fix(e.pad); }
+  for (auto& e : waves_) le::words(&e, 2);
+  for (auto& e : reach_) le::words(&e, 2);
+  le::halves(reachPool_.data(), reachPool_.size());
+ }
  for (const auto& g : groups_) if (g.firstItem + g.itemCount > groupItems_.size()) { sounds_.clear(); return false; }
  fileWaves_.resize(files_.size());
  u32 at = 0;

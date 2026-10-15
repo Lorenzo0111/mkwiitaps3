@@ -1,4 +1,5 @@
 #include <mkw/job_worker.hpp>
+#include <mkw/fpu_mode.hpp>
 #include <mkw/render_metrics.hpp>
 #include <mkw/skin_positions.hpp>
 #include <algorithm>
@@ -11,14 +12,14 @@ bool JobWorker::start(){
     LightEvent_Init(&wake_,RESET_ONESHOT);LightEvent_Init(&done_,RESET_ONESHOT);
     // Same VFP mode (flush-to-zero, default NaN, rounding) as the main thread,
     // so a job computes identical floats on either core.
-    fpscr_=__builtin_arm_get_fpscr();
+    fpscr_=mkw::fpuMode();
     bool n3ds=false;APT_CheckNew3DS(&n3ds);
     // Old 3DS core 1 is time sliced with the system; the audio threads there
     // already require a limit (sound_system.cpp). Higher-priority system and
     // audio threads still preempt this one.
     if(!n3ds){u32 limit=0;APT_GetAppCpuTimeLimit(&limit);if(limit<80)APT_SetAppCpuTimeLimit(80);}
     s32 priority=0x30;svcGetThreadPriority(&priority,CUR_THREAD_HANDLE);
-#ifdef __vita__
+#if defined(__vita__) || defined(__PPU__)
     // The render thread takes the Vita's second core: jobs share the third with audio.
     const int core=3;
 #else
@@ -60,7 +61,7 @@ void JobWorker::finishAll(){
     }
 }
 void JobWorker::loop(){
-    __builtin_arm_set_fpscr(fpscr_);
+    mkw::setFpuMode(fpscr_);
     metrics_=&renderMetrics;positionScratchIndex=1;
     for(;;){
         LightEvent_Wait(&wake_);

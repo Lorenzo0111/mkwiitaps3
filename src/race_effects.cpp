@@ -1,6 +1,7 @@
 #include "mkw/render_quality.hpp"
 #include <mkw/race_effects.hpp>
 #include <mkw/asset_pack.hpp>
+#include <mkw/endian.hpp>
 #include <cstdio>
 #include <cstring>
 #include <cerrno>
@@ -92,7 +93,7 @@ bool RaceEffects::loadMemory(const void* bytes,size_t size){
     unload();loadError_="header";loadErrno_=0;
     if(size<20)return false;
     const auto* file=static_cast<const uint8_t*>(bytes);
-    uint32_t h[5]{};std::memcpy(h,file,sizeof h);
+    uint32_t h[5]{};std::memcpy(h,file,sizeof h);le::words(h+1,4);
     bool ok=!std::memcmp(h,"REFX",4)&&h[1]==3&&h[2]>0&&h[2]<=255&&h[3]<=96&&h[4]<=(1u<<20);
     struct Record { char name[32]; uint32_t desc,ptcl; uint16_t texture[3],ptclTracks,ptclInit,emitTracks,emitInit,ptclSize,pad[2]; uint32_t list; };
     static_assert(sizeof(Record)==64,"REFX record");
@@ -104,7 +105,9 @@ bool RaceEffects::loadMemory(const void* bytes,size_t size){
     size_t at=sizeof h;
     if(!textures.empty())std::memcpy(textures.data(),file+at,textures.size()*40);
     at+=textures.size()*40;
+    for(auto& t:textures)le::halves(&t.width,4);
     std::memcpy(records.data(),file+at,records.size()*64);at+=records.size()*64;
+    for(auto& r:records){le::words(&r.desc,2);le::halves(r.texture,10);le::fix(r.list);}
     if(!blob_.empty())std::memcpy(blob_.data(),file+at,blob_.size());
     loadError_="resource offsets";
     auto& res=system_->resources;
@@ -121,7 +124,7 @@ bool RaceEffects::loadMemory(const void* bytes,size_t size){
         parseDesc(e.desc,blob_.data()+r.desc);
         parsePtcl(e.ptcl,blob_.data()+r.ptcl,r.texture);
         for(size_t k=0;k<curves;++k){
-            uint32_t at;std::memcpy(&at,blob_.data()+r.list+k*4,4);
+            const uint32_t at=le::u32(blob_.data()+r.list+k*4);
             loadError_="curve offsets";
             ok&=at<=blob_.size()&&blob_.size()-at>=0x40;
             if(!ok)break;

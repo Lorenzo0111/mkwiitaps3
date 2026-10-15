@@ -1,5 +1,7 @@
 #pragma once
 #include "mkw/math.hpp"
+#include "mkw/endian.hpp"
+#include <cstddef>
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -38,8 +40,10 @@ public:
     bool load(const char* path){
         ready=false;
         FILE* f=std::fopen(path,"rb");if(!f)return false;uint32_t h[3]{};
-        bool ok=std::fread(h,1,sizeof h,f)==sizeof h&&!std::memcmp(h,"DEFX",4)&&h[1]==3&&h[2]==specs.size();
+        bool ok=std::fread(h,1,sizeof h,f)==sizeof h&&(le::words(h+1,2),true)&&!std::memcmp(h,"DEFX",4)&&h[1]==3&&h[2]==specs.size();
         ok=ok&&std::fread(specs.data(),sizeof(SparkSpec),specs.size(),f)==specs.size();
+        // Words but the two colour byte quads and the four trailing bytes.
+        if(ok)for(auto& s:specs){le::wordBytes(&s,offsetof(SparkSpec,primary));le::wordBytes(&s.offset,offsetof(SparkSpec,shapeType)-offsetof(SparkSpec,offset));}
         ok=ok&&std::fgetc(f)==EOF;std::fclose(f);
         for(const auto& s:specs){
             ok&=s.life>0&&s.life<=32&&s.texture<3&&s.layer<4;
