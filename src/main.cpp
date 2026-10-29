@@ -530,6 +530,63 @@ int main() {
     // halves, 3-4P quadrants). Player 1's Back on the character grid returns
     // to the engine classes; a ready player's Back reopens their choice. Once
     // everyone has chosen a drift, player 1 continues with the cup.
+#ifdef __PPU__
+    // PS3 multiplayer controllers: each player in turn presses X on a
+    // DualShock 3 or the Move button on a PlayStation Move, which becomes
+    // theirs (hidAssignPlayers). Circle undoes the last choice; with none
+    // made it returns to the main menu (false).
+    bool chooseControllers=false;
+    auto runControllerSelect=[&]()->bool{
+        constexpr unsigned Max=mkw::UiSelection::MaxPlayers;
+        const unsigned n=std::clamp(menu.selection.players,2u,Max);
+        std::array<int,Max> chosen{};unsigned count=0;
+        hidAssignPlayers(nullptr,0);
+        // The menus' backdrop behind the choice.
+        std::vector<mkw::UiQuad> backdrop;
+        {auto page=menu;page.enter(mkw::UiPage::EngineClass);mkw::composeMenu(page,uiRace,backdrop);if(backdrop.size()>1)backdrop.resize(1);}
+        auto box=[&](unsigned p){
+            mkw::Renderer::ScreenView v;constexpr float W=mkw::display::Width;
+            v.w=W*.5f-8;v.h=96;v.canvas=240.f*v.w/v.h;
+            v.x=n==2?W*.25f+4:float(p&1)*W*.5f+4;v.y=n==2?24.f+float(p)*104.f:24.f+float(p>>1)*104.f;
+            return v;
+        };
+        unsigned frame=0;
+        while(aptMainLoop()){
+            hidScanInput();++frame;
+            const u32 confirm=hidDevicesDown(KEY_A),back=hidDevicesDown(KEY_B);
+            for(int d=0;d<32&&count<n;++d){
+                if(!(confirm&(1u<<d)))continue;
+                if(std::find(chosen.begin(),chosen.begin()+count,d)!=chosen.begin()+count)continue;
+                chosen[count++]=d;
+            }
+            if(back){
+                if(!count)return false;
+                if(back&(1u<<chosen[count-1]))--count;
+            }
+            if(count==n){hidAssignPlayers(chosen.data(),n);return true;}
+            menuRenderer.request(backdrop,mkw::AssetPriority::Urgent);menuRenderer.update(renderer);
+            renderer.begin({0,0,1000},{0,0,0},{0,1,0});
+            renderer.drawScreenFade(1.f,false);
+            if(menuRenderer.ready(backdrop))menuRenderer.draw(renderer,backdrop,false);
+            renderer.drawScreenText("CONTROLLERS",mkw::display::CenterX-6*2*11*.5f,6,2.f,0xffffffffu);
+            for(unsigned p=0;p<n;++p){
+                renderer.beginView(box(p));
+                renderer.drawScreenFade(.55f,false);
+                char text[16];snprintf(text,sizeof text,"P%u",p+1);
+                renderer.drawScreenText(text,16,16,5.f,0xffd040ffu);
+                if(p<count)renderer.drawScreenText(chosen[p]>=HID_DEVICE_MOVE?"MOVE":"DUALSHOCK 3",16,120,4.f,0xffffffffu);
+                else if(p==count&&(frame/30)%2==0){
+                    renderer.drawScreenText("PRESS X ON A DUALSHOCK 3",16,104,2.5f,0xffffffffu);
+                    renderer.drawScreenText("OR THE MOVE BUTTON",16,140,2.5f,0xffffffffu);
+                }
+            }
+            renderer.beginView(mkw::Renderer::ScreenView{});
+            renderer.drawScreenText(count?"CIRCLE: UNDO":"CIRCLE: BACK",8,228,1.f,0xc0c0c0ffu);
+            renderer.end();
+        }
+        return false;
+    };
+#endif
     auto runSplitSelect=[&](){
         constexpr unsigned Max=mkw::UiSelection::MaxPlayers;
         const unsigned n=std::clamp(menu.selection.players,2u,Max);
@@ -654,6 +711,14 @@ int main() {
             // Keep the resident course for ResumeRace; only release when leaving
             // the race section for an unrelated menu or a different race.
             if(raceResident&&!menu.retainsRaceAssets())releaseRace();
+#ifdef __PPU__
+            if(chooseControllers&&revealed&&!transition.active()){
+                chooseControllers=false;
+                if(!runControllerSelect()){const unsigned players=menu.selection.players;menu.enter(mkw::UiPage::MainMenu);menu.cursor=players-1;}
+                transition=mkw::MenuTransition{};visualKeyed=incomingKeyed=prefetched=false;stable=0;
+                last=svcGetSystemTick();pending=0;continue;
+            }
+#endif
             if(menu.selection.players>1&&revealed&&!transition.active()&&
                (menu.page==mkw::UiPage::Character||menu.page==mkw::UiPage::Vehicle||menu.page==mkw::UiPage::Drift)){
                 runSplitSelect();
@@ -668,6 +733,14 @@ int main() {
             if(autoplay){input=autopilot->menu(menu,revealed&&!transition.active());if(autopilot->finished())return leave(mkw::UiAction::Exit);}
             const auto beforeInput=menu;
             auto action=transition.input(menu,input);
+#ifdef __PPU__
+            // Multiplayer: the players choose their controllers once the class page is up;
+            // single player takes the controllers in the order the PS3 found them.
+            if(beforeInput.page==mkw::UiPage::MainMenu&&menu.page!=mkw::UiPage::MainMenu){
+                chooseControllers=menu.selection.players>1;
+                if(!chooseControllers)hidAssignPlayers(nullptr,0);
+            }
+#endif
             menuSound.input(beforeInput,menu,input,action);
             if(action!=mkw::UiAction::None){if(action==mkw::UiAction::StartRace||action==mkw::UiAction::RestartRace)menuSound.leave();return leave(action);}
             auto now=svcGetSystemTick();pending+=std::min(double(now-last)/SYSCLOCK_ARM11,.1)*60;last=now;
