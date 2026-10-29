@@ -14,5 +14,6 @@ build-cia-log.txt
 outs/
 build-vita-log.txt
 build-assets-log.txt
+*.wbfs
 # The Vita shader compiler module (extracted from your console, never shared)
 libshacccg.suprx

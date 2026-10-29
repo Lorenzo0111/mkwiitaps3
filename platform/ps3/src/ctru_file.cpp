@@ -16,8 +16,16 @@ namespace {
 constexpr const char* VitaRoot = "ux0:data";
 // PARAM.SFO's title id is MKWP00001 (CMakeLists.txt): the installed package's own folder.
 constexpr const char* Ps3Root = "/dev_hdd0/game/MKWP00001/USRDIR";
-// path with the Vita prefix replaced; other paths are returned unchanged.
+// path with the Vita prefix replaced, or a relative one made absolute (PSL1GHT's
+// open ignores the directory chdir sets); other paths are returned unchanged.
 const char* mapped(const char* path, std::string& storage) {
+	char cwd[256];
+	if (path && *path != '/' && !std::strchr(path, ':') && getcwd(cwd, sizeof cwd)) {
+		storage = cwd;
+		if (storage.back() != '/') storage += '/';
+		storage += path;
+		return storage.c_str();
+	}
 	const size_t n = std::strlen(VitaRoot);
 	if (!path || std::strncmp(path, VitaRoot, n) || (path[n] && path[n] != '/')) return path;
 	storage = Ps3Root;

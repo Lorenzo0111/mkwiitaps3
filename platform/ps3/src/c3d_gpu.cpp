@@ -19,6 +19,7 @@
 #include <rsx/rsx.h>
 #include <sysutil/video.h>
 #include <sys/systime.h>
+#include <lv2/thread.h>
 #include <ppu-asm.h>
 #include <algorithm>
 #include <atomic>
@@ -59,7 +60,7 @@ namespace {
 constexpr u8 VertexUB256 = 7, VertexS32K = 5;
 // Main memory the RSX reads (IO mapped): the command buffer, LINEAR memory
 // and the per-frame scratch area.
-constexpr uint32_t CommandSize = 1u << 20;
+constexpr uint32_t CommandSize = 8u << 20; // two frames' commands (switchCommandHalf)
 constexpr uint32_t LinearSize = 64u << 20;
 constexpr uint32_t ScratchSize = 16u << 20;
 constexpr uint32_t IoSize = CommandSize + LinearSize + ScratchSize;
@@ -94,9 +95,32 @@ uint32_t completedFence() { return fenceLabel ? *fenceLabel : 0; }
 bool passed(uint32_t completed, uint32_t fence) { return int32_t(completed - fence) >= 0; }
 // The fence a resource released now must wait for.
 uint32_t releaseFence() { return submittedFence.load() + (inFrame.load() ? 1 : 0); }
-void writeFence() {
+// The command buffer is two halves, one per frame, so GCM's segment callback
+// never runs (PSL1GHT's commands keep context->current in a register across
+// it and write to the old segment). A frame ends with its fence and a jump to
+// the other half, written before PUT passes them; FrameBegin waits for the
+// frame that last used that half.
+u32* commandBegin = nullptr;
+uint32_t commandHalfWords = 0;
+unsigned commandHalf = 0;
+u32* checkedTo = nullptr; // DEBUG: checkCommands
+const char* lastCheck = "start";
+void switchCommandHalf() {
+	commandHalf ^= 1;
+	u32* begin = commandBegin + commandHalf * commandHalfWords;
+	uint32_t offset = 0;
+	rsxAddressToOffset(begin, &offset);
+	rsxSetJumpCommand(context, offset);
+	context->begin = begin;
+	context->current = begin;
+	context->end = begin + commandHalfWords - 1;
+	checkedTo = begin;
+	lastCheck = "frame start";
+}
+void writeFence(bool frameEnd = false) {
 	const uint32_t value = submittedFence.load() + 1;
 	rsxSetWriteBackendLabel(context, FenceLabel, value);
+	if (frameEnd) switchCommandHalf();
 	rsxFlushBuffer(context);
 	submittedFence.store(value);
 }
@@ -105,6 +129,36 @@ void waitFence(uint32_t value) {
 }
 // Everything submitted so far has completed (render thread).
 void waitIdle() { writeFence(); waitFence(submittedFence.load()); }
+
+// DEBUG: parses the commands written since the last check; a header that does
+// not line up is logged with the step that wrote it, before the RSX reads it.
+void checkCommands(const char* where) {
+	if (!checkedTo) return;
+	static sys_ppu_thread_t thread = 0;
+	static unsigned switches = 0;
+	sys_ppu_thread_t self = 0;
+	sysThreadGetId(&self);
+	if (self != thread && switches++ < 50) std::printf("c3dps3: commands from thread %llx at '%s' (was %llx)\n", (unsigned long long)self, where, (unsigned long long)thread);
+	thread = self;
+	u32* p = checkedTo;
+	while (p < context->current) {
+		const u32 h = *p;
+		const u32 count = (h >> 18) & 0x7ff;
+		// 2: a call (the system's flip routine), 0x20000: a return.
+		if (h && h != 0x20000 && (h & 3) != 2 && ((h & 0xa0030003) || !count)) {
+			std::printf("c3dps3: bad command 0x%08x at +0x%x, written between '%s' and '%s' (from +0x%x to +0x%x)\n", unsigned(h),
+				unsigned((p - commandBegin) * 4), lastCheck, where, unsigned((checkedTo - commandBegin) * 4), unsigned((context->current - commandBegin) * 4));
+			for (u32* q = std::max(commandBegin, checkedTo - 16); q < context->current && q < p + 48; q += 4)
+				std::printf("  +0x%05x: %08x %08x %08x %08x\n", unsigned((q - commandBegin) * 4), unsigned(q[0]), unsigned(q[1]), unsigned(q[2]), unsigned(q[3]));
+			std::fflush(stdout);
+			std::abort();
+		}
+		p += h && h != 0x20000 && (h & 3) != 2 ? 1 + count : 1;
+	}
+	checkedTo = p;
+	lastCheck = where;
+}
+
 
 // RSX local memory released when the GPU is done with it.
 struct DeadBlock { void* ptr; uint32_t fence; };
@@ -652,6 +706,7 @@ void flushClear(Target* t) {
 		mask |= GCM_CLEAR_Z | GCM_CLEAR_S;
 	}
 	rsxClearSurface(context, mask);
+	checkCommands("clear");
 	t->clearColor = t->clearDepth = false;
 	invalidateApplied();
 }
@@ -903,12 +958,19 @@ void prepareDraw(uint32_t first, uint32_t end) {
 	const ProgramBlob& fragment = lastFragment && !std::memcmp(&key, &lastKey, sizeof key) ? *lastFragment : fragmentProgram(key);
 	lastKey = key; lastFragment = &fragment;
 
+	checkCommands("draw start");
 	for (int u = 0; u < 3; ++u) bindTexture(u, state.tex[u]);
+	checkCommands("textures");
 	applyFixedState();
+	checkCommands("fixed state");
 	loadVertexProgram(vertexProgram(state.program, C3D_BoolUnifs[0] & 7));
+	checkCommands("vertex program");
 	loadFragmentProgram(fragment);
+	checkCommands("fragment program");
 	uploadVertexConstants();
+	checkCommands("vertex constants");
 	bindConstantRow();
+	checkCommands("constant row");
 
 	// Attribute loaders (AttrInfo) fed from the buffers (BufInfo) in place.
 	AttributeSource src[16];
@@ -939,6 +1001,7 @@ u32 primitive(GPU_Primitive_t p) {
 	}
 }
 void afterDraw() {
+	checkCommands("draw");
 	++stats.draws;
 	if (stats.draws % 32 == 0) rsxFlushBuffer(context); // let the GPU start
 }
@@ -995,6 +1058,7 @@ void present(Target* top) {
 	gcmSetFlip(context, u8(backBuffer));
 	rsxFlushBuffer(context);
 	gcmSetWaitFlip(context);
+	checkCommands("present");
 	backBuffer ^= 1;
 }
 
@@ -1036,6 +1100,10 @@ void initDisplay() {
 
 	void* io = memalign(1u << 20, IoSize);
 	if (!io || rsxInit(&context, CommandSize, IoSize, io) != 0) { std::printf("c3dps3: rsxInit failed\n"); std::abort(); }
+	commandBegin = context->begin;
+	commandHalfWords = uint32_t(reinterpret_cast<u32*>(static_cast<uint8_t*>(io) + CommandSize) - commandBegin) / 2;
+	context->end = commandBegin + commandHalfWords - 1;
+	checkedTo = context->current;
 	linear.init(static_cast<uint8_t*>(io) + CommandSize, LinearSize);
 	scratchBase = static_cast<uint8_t*>(io) + CommandSize + LinearSize;
 	fenceLabel = gcmGetLabelAddress(FenceLabel);
@@ -1383,6 +1451,7 @@ bool C3D_FrameBegin(u8) {
 	inFrame.store(true);
 	rsxInvalidateTextureCache(context, GCM_INVALIDATE_TEXTURE);
 	applied.constantRow = ~0u;
+	checkCommands("frame begin");
 	stats.frameStartUs = nowUs();
 	for (Target* t : targets) t->c3d.used = false;
 	return true;
@@ -1422,7 +1491,8 @@ void C3D_FrameEnd(u8) {
 			stats.lastPresentUs = keep;
 		}
 	}
-	writeFence();
+	checkCommands("frame end");
+	writeFence(true);
 	inFrame.store(false);
 	++frameNumber;
 }
