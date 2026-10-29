@@ -176,6 +176,7 @@ struct CourseObjects::Impl {
     Job skyJob,objectJob;
     void recordSky();
     void recordObjects();
+    bool allViews=false;
     void begin(const Renderer& renderer,unsigned frameTick,Vec3 frameCamera);
     void replay(Renderer& renderer,const ObjectDrawList& list);
 };
@@ -372,10 +373,12 @@ void CourseObjects::draw(Renderer& renderer,unsigned tick,Vec3 camera){
         jobWorker().finish(d.skyJob);jobWorker().finish(d.objectJob);d.queued=false;
     }
     d.replay(renderer,d.objects);
-    d.recorded=false;
+    // Splitscreen: later views replay this frame's recording too.
+    d.recorded=d.allViews;
     // Retail shadow volumes darken the course and objects drawn before them.
     if(d.linkedReady)renderer.drawShadowVolumes(d.shadows.data(),unsigned(d.shadows.size()),.5f);
 }
+void CourseObjects::setAllViews(bool on){impl_->allViews=on;if(!on)impl_->recorded=false;}
 void CourseObjects::drawWater(Renderer& renderer){
     // draw() has joined the object job. Keep the recorded materials and pose
     // at that same tick; no second simulation or recording is needed.
