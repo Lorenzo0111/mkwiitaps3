@@ -78,8 +78,6 @@ player's START pauses. Course bloom is off in splitscreen.
 Single player, and anything outside the multiplayer choice, uses the
 controllers in the order the PS3 found them: DualShock 3s first, then Moves.
 
-## Controls
-
 | PS3 | Game |
 |---|---|
 | Left stick / D-pad | Steer, menus |

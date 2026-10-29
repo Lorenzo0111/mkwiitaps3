@@ -57,7 +57,8 @@ public:
     bool driveLocal=false;
     // Local players handed to the route driver (after their goal), by racer bit.
     uint32_t driveLocalMask=0;
-    bool aiDriven(unsigned racer) const{return racer>=locals_||driveLocal||(driveLocalMask>>racer&1);}
+    // driveLocal (player 1's goal, QA autopilot) hands over racer 0 only.
+    bool aiDriven(unsigned racer) const{return racer>=locals_||(racer==0&&driveLocal)||(driveLocalMask>>racer&1);}
     bool battleArena() const{return battleArena_;}
     // Grid slots (0 = pole) by racer for the next configure(), as retail starts
     // a Grand Prix's races in the previous race's finishing order; 0xff keeps
