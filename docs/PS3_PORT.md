@@ -71,8 +71,6 @@ player's START pauses. Course bloom is off in splitscreen.
 
 ## Controls
 
-## Controls
-
 | PS3 | Game |
 |---|---|
 | Left stick / D-pad | Steer, menus |

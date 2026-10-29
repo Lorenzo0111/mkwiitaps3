@@ -17,6 +17,7 @@
 #include <vector>
 #include <3ds.h>
 #include <algorithm>
+#include <type_traits>
 #include <cmath>
 #include <cstdio>
 #include <new>
@@ -476,6 +477,11 @@ void RaceBottomScreen::drawMini(Renderer& renderer,const BottomView& view,bool l
         m.miniMap.ready=true;
     }
     const bool mapShown=m.wiiMap||m.miniMap.ready;
+    // The generated map's placement, put back after a large call.
+    struct Restore {
+        std::remove_reference_t<decltype(m)>* map=nullptr;float ox=0,oy=0,scale=0,w=0,h=0;
+        ~Restore(){if(map){map->miniOx=ox;map->miniOy=oy;map->miniScale=scale;map->miniW=w;map->miniH=h;}}
+    } restore;
     // Copied when drawn: splitscreen frames draw the map once per view.
     auto* quads=m.miniQuad[renderer.recordingFrame()&1];
     auto set=[](Renderer::MaterialQuad& q,float x0,float y0,float x1,float y1,float u0,float v0,float u1,float v1,uint32_t color){
@@ -518,6 +524,15 @@ void RaceBottomScreen::drawMini(Renderer& renderer,const BottomView& view,bool l
         }
         }
     }else{
+        if(large){
+            // Scaled about the view's centre for this call; the faces below
+            // read the same placement, restored when the call ends.
+            const float side=std::max(m.miniW,m.miniH),k=200.f/side,pad=MiniRoad+MiniEdge+1.f;
+            const float ox=renderer.canvasCenterX()-m.miniW*k*.5f,oy=120.f-m.miniH*k*.5f;
+            restore.map=&m;restore.ox=m.miniOx;restore.oy=m.miniOy;restore.scale=m.miniScale;restore.w=m.miniW;restore.h=m.miniH;
+            m.miniOx=ox+(k-1)*pad;m.miniOy=oy+(k-1)*pad;m.miniScale*=k;
+            m.miniW=m.miniW*k-2*(k-1)*pad;m.miniH=m.miniH*k-2*(k-1)*pad;
+        }
         const float side=std::max(m.miniW,m.miniH);
         set(quads[0],m.miniOx,m.miniOy,m.miniOx+side,m.miniOy+side,0,0,1,1,0xffffffffu);
         if(m.mirror)flipQuad(quads[0],m.miniOx+m.miniW*.5f,false);

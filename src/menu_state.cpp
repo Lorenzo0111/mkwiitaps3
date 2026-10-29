@@ -200,9 +200,17 @@ UiAction MenuState::input(UiInput key){
  case UiPage::MainMenu:
   // Multiplayer 2P/3P/4P (controls 1-3): a splitscreen Grand Prix. Each player
   // picks a character, vehicle and drift on their own grid (main.cpp).
+  // The Vita has one set of controls: splitscreen is the PS3's.
+  {
+#ifdef __vita__
+  constexpr bool splitscreen=false;
+#else
+  constexpr bool splitscreen=true;
+#endif
   if(cursor==0){selection.players=1;enter(UiPage::Mode);}
-  else if(cursor<=3){selection.players=cursor+1;selection.mode=UiMode::GrandPrix;enter(UiPage::EngineClass);}
+  else if(splitscreen&&cursor<=3){selection.players=cursor+1;selection.mode=UiMode::GrandPrix;enter(UiPage::EngineClass);}
   else unavailable=true;
+  }
   break;
  case UiPage::Mode:
   if(!raceMode(UiMode(cursor))){unavailable=true;break;}

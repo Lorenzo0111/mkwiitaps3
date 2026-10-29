@@ -309,7 +309,8 @@ void CourseObjects::Impl::recordSky(){
 }
 void CourseObjects::Impl::recordObjects(){
     objects.clear();water.clear();
-    if(palm)for(const auto& matrix:palms)if(!renderQuality().tooSmall({palm->minimum,palm->maximum},matrix,camera))objects.records.push_back({ObjectDrawRecord::Plain,false,0,palm.get(),nullptr,0,0,0,0,0,matrix});
+    // Splitscreen recordings (view.all) serve every view: no size cull from one camera.
+    if(palm)for(const auto& matrix:palms)if(view.all||!renderQuality().tooSmall({palm->minimum,palm->maximum},matrix,camera))objects.records.push_back({ObjectDrawRecord::Plain,false,0,palm.get(),nullptr,0,0,0,0,0,matrix});
     // Includes the children of paired escalators. Kinoko updates these transforms
     // after its 60 Hz step, including stops/reversals and the looping tread offset.
     // Query each frame so restart/map changes cannot leave stale scene pointers.
@@ -423,7 +424,7 @@ void ObjectDraw::submit(ObjModel* m,const C3D_Mtx& transform,const Anim& source)
     Anim anim=source;const float step=float(renderQuality().animationStep);
     if(m->crowd&&step>0&&anim.clip>=0&&!anim.palette)anim.frame=std::floor(anim.frame/step)*step;
     if(!view.model(transform).intersects(anim.bounds?*anim.bounds:m->bounds))return;
-    if(renderQuality().tooSmall(anim.bounds?*anim.bounds:m->bounds,transform,camera))return;
+    if(!view.all&&renderQuality().tooSmall(anim.bounds?*anim.bounds:m->bounds,transform,camera))return;
     const ObjectBank* bank=m->bank.get();
     // GPU-skinned meshes hold bone-local positions: unanimated, they draw the bind pose.
     const bool posed=bank&&(anim.palette||anim.clip>=0||m->rigid||m->gpuSkin);

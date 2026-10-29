@@ -599,6 +599,8 @@ int main() {
                 if(resident)menuRenderer.draw(renderer,quads[p],false,0,~0u,&icons(p));
                 char label[16];snprintf(label,sizeof label,ready[p]?"P%u READY":"P%u",p+1);
                 renderer.drawScreenText(label,14,14,3.f,ready[p]?0x60ff60ffu:0xffffffffu);
+                // A player without a controller cannot choose: say so (player 1 can still back out).
+                if(p>=hidPadCount())renderer.drawScreenText("CONNECT A CONTROLLER",14,200,2.f,0xff6060ffu);
             }
             renderer.beginView(mkw::Renderer::ScreenView{});
             renderer.end();
